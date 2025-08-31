@@ -1,31 +1,42 @@
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
-import TelegramBot from "node-telegram-bot-api";
+import axios from "axios";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-const { TEL_TOKEN, URL_NGROK, PORT } = process.env;
+const { TEL_TOKEN, URL_NGROK, PORT, TELEGRAM_API_URL } = process.env;
 
 if (!TEL_TOKEN || !URL_NGROK) {
   throw new Error(
     "As variáveis TEL_TOKEN e URL_NGROK são obrigatórias no .env"
   );
 }
+if (!TELEGRAM_API_URL) {
+  throw new Error(
+    "A variável TELEGRAM_API_URL é obrigatória no .env e deve conter 'https://api.telegram.org/bot'"
+  );
+}
+
+// Ensure TELEGRAM_API_URL ends with 'bot' (no trailing slash) or with '/bot'
+const baseTelegramUrl = TELEGRAM_API_URL.endsWith("/")
+  ? TELEGRAM_API_URL.slice(0, -1)
+  : TELEGRAM_API_URL;
+
+const TEL_API = `${baseTelegramUrl}${
+  TEL_TOKEN.startsWith("/") ? "" : ""
+}${TEL_TOKEN}`;
 const WEBHOOK_URL = `${URL_NGROK}/webhook/${TEL_TOKEN}`;
 const WEBHOOK_END = `/webhook/${TEL_TOKEN}`;
 
 console.log("WEBHOOK_URL >> ", WEBHOOK_URL);
 
-// Initialize Telegram bot (no polling, we'll use express webhook)
-const bot = new TelegramBot(TEL_TOKEN, { polling: false });
-
 const setWebhookUrl = async (): Promise<void> => {
   try {
-    const res = await bot.setWebHook(WEBHOOK_URL);
-    console.log("Webhook configurado: ", res);
+    const res = await axios.get(`${TEL_API}/setWebhook?url=${WEBHOOK_URL}`);
+    console.log("Webhook configurado: ", res.data);
   } catch (error) {
     console.error("Erro ao configurar webhook: ", error);
   }
@@ -45,10 +56,10 @@ app.post(
         return res.status(400).send({ error: "Mensagem inválida recebida" });
       }
 
-      await bot.sendMessage(
-        chatId,
-        `Olá ${name || "usuário"}, você disse: ${text}`
-      );
+      await axios.post(`${TEL_API}/sendMessage`, {
+        chat_id: chatId,
+        text: `Olá ${name || "usuário"}, você disse: ${text}`,
+      });
 
       return res.send({ status: "Mensagem enviada com sucesso" });
     } catch (error) {
@@ -60,7 +71,7 @@ app.post(
 
 app.get("/status", (req: Request, res: Response) => {
   const payload = {
-    name: "bot Telegram API",
+    name: "Wholesale API",
     status: "online",
     version: "1.0.1",
     documentation: "/",
