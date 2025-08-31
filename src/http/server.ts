@@ -1,64 +1,46 @@
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
-import TelegramBot from "node-telegram-bot-api";
+import { Bot, Context, webhookCallback } from "grammy";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-const { TEL_TOKEN, URL_NGROK, PORT } = process.env;
+const { TELEGRAM_LEOBOT_TOKEN, URL_NGROK, PORT } = process.env;
 
-if (!TEL_TOKEN || !URL_NGROK) {
+if (!TELEGRAM_LEOBOT_TOKEN || !URL_NGROK) {
   throw new Error(
     "As variáveis TEL_TOKEN e URL_NGROK são obrigatórias no .env"
   );
 }
-const WEBHOOK_URL = `${URL_NGROK}/webhook/${TEL_TOKEN}`;
-const WEBHOOK_END = `/webhook/${TEL_TOKEN}`;
+const WEBHOOK_URL = `${URL_NGROK}/webhook/${TELEGRAM_LEOBOT_TOKEN}`;
+const WEBHOOK_END = `/webhook/${TELEGRAM_LEOBOT_TOKEN}`;
 
 console.log("WEBHOOK_URL >> ", WEBHOOK_URL);
 
-// Initialize Telegram bot (no polling, we'll use express webhook)
-const bot = new TelegramBot(TEL_TOKEN, { polling: false });
+// Initialize Telegram bot with grammY
+const bot = new Bot(TELEGRAM_LEOBOT_TOKEN);
 
-const setWebhookUrl = async (): Promise<void> => {
+// Handle text messages with grammY
+bot.on("message:text", async (ctx: Context) => {
   try {
-    const res = await bot.setWebHook(WEBHOOK_URL);
-    console.log("Webhook configurado: ", res);
+    console.log("Mensagem recebida: ", ctx.update);
+
+    const msg = ctx.message;
+    if (!msg) return;
+
+    const chatId = msg.chat.id;
+    const text = msg.text || "";
+    const name = msg.from?.first_name;
+
+    await ctx.reply(`Olá ${name || "usuário"}, você disse: ${text}`);
   } catch (error) {
-    console.error("Erro ao configurar webhook: ", error);
+    console.error("Erro ao processar mensagem: ", error);
   }
-};
+});
 
-app.post(
-  WEBHOOK_END,
-  async (req: Request, res: Response): Promise<Response> => {
-    try {
-      console.log("req.body >> ", req.body);
-
-      const chatId: number | undefined = req.body?.message?.chat?.id;
-      const text: string | undefined = req.body?.message?.text;
-      const name: string | undefined = req.body?.message?.from?.first_name;
-
-      if (!chatId || !text) {
-        return res.status(400).send({ error: "Mensagem inválida recebida" });
-      }
-
-      await bot.sendMessage(
-        chatId,
-        `Olá ${name || "usuário"}, você disse: ${text}`
-      );
-
-      return res.send({ status: "Mensagem enviada com sucesso" });
-    } catch (error) {
-      console.error("Erro ao processar mensagem: ", error);
-      return res.status(500).send({ error: "Erro interno do servidor" });
-    }
-  }
-);
-
-app.get("/status", (req: Request, res: Response) => {
+app.get("/", (req: Request, res: Response) => {
   const payload = {
     name: "bot Telegram API",
     status: "online",
@@ -76,5 +58,13 @@ app.get("/status", (req: Request, res: Response) => {
 
 app.listen(Number(PORT) || 8080, async () => {
   console.log("Servidor rodando na porta", PORT || 8080);
-  await setWebhookUrl();
+  // Configure webhook with grammY
+  // Set webhook URL in Telegram and attach grammY express middleware
+  try {
+    await bot.api.setWebhook(WEBHOOK_URL);
+    app.use(WEBHOOK_END, webhookCallback(bot, "express"));
+    console.log("Webhook configurado em:", WEBHOOK_URL);
+  } catch (err) {
+    console.error("Erro ao configurar webhook: ", err);
+  }
 });
